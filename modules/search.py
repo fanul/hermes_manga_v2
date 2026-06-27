@@ -120,18 +120,20 @@ def is_spinoff_title(title):
 
 def find_best_match(title, log, allow_fuzzy=False):
     """Search for a manga across all sources and return best match.
-    
+
     Strategy:
       - Try all variants × all sources
-      - Collect all candidates with score >= 70 (strict) or 30 (fuzzy)
-      - Pick: highest score, then shortest title (prefer main over spinoff)
-      - If allow_fuzzy=True, also accept lower scores for fallback
-    
+      - Filter candidates by spinoff relationship (target=spinoff → only spinoff matches)
+      - Score by keyword overlap + chapter count
+      - Pick highest score
+
     Returns:
         ((manga_dict, source_id, matched_variant, ch_count), score) or
         (None, 0)
     """
     variants = generate_variants(title)
+    target_is_spinoff = is_spinoff_title(title)
+
     candidates = []
     threshold = 30 if allow_fuzzy else 70
 
@@ -139,23 +141,35 @@ def find_best_match(title, log, allow_fuzzy=False):
         for source_id in MANGAFIRE_SOURCES:
             results = search_manga(variant, source_id)
             for r in results:
-                score = title_match_score(r["title"], title)
-                spinoff = is_spinoff_title(r["title"])
-                # Penalize spin-offs heavily
-                if spinoff:
+                cand_title = r["title"]
+                cand_is_spinoff = is_spinoff_title(cand_title)
+                score = title_match_score(cand_title, title)
+
+                # CRITICAL: if target is spinoff, reject non-spinoff candidates
+                if target_is_spinoff and not cand_is_spinoff:
+                    continue
+
+                # Penalize spinoff-vs-non-spinoff mismatches (avoid confusion)
+                # But only penalize the OTHER direction (target not spinoff, candidate is)
+                if not target_is_spinoff and cand_is_spinoff:
                     score -= 50
-                # Non-spin-offs can pass with lower threshold (20 instead of 70)
-                eff_threshold = 20 if not spinoff else threshold
+                    if score < threshold:
+                        continue
+
+                # Threshold check
+                eff_threshold = 30 if allow_fuzzy else 40
                 if score >= eff_threshold:
                     candidates.append((score, r, source_id, variant))
 
     if not candidates:
         return None, 0
 
-    # Filter out spin-offs unless they're the only candidate
-    non_spinoffs = [(s, m, src, var) for s, m, src, var in candidates if not is_spinoff_title(m["title"])]
-    if non_spinoffs:
-        candidates = non_spinoffs
+    # If target is spinoff, prefer spinoff candidates
+    # (in case both spinoff and non-spinoff got in somehow)
+    if target_is_spinoff:
+        spinoff_cands = [c for c in candidates if is_spinoff_title(c[1]["title"])]
+        if spinoff_cands:
+            candidates = spinoff_cands
 
     # Boost by chapter count — main series tend to have many chapters
     boosted = []
@@ -166,7 +180,7 @@ def find_best_match(title, log, allow_fuzzy=False):
 
     boosted.sort(key=lambda x: (-x[0], len(x[1]["title"]), x[2]))
     best = boosted[0]
-    return (best[1], best[2], best[3], best[4]), best[0]
+    return (best[1], best[2], best[3], best[4]), best[0] + 0  # don't include bonus in returned score
 
 
 def find_fuzzy_match(title, log):

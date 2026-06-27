@@ -43,7 +43,12 @@ def process_title(title, kavita_titles, log):
     # Step 0: Kavita skip check
     if kavita_titles and is_in_kavita(title, kavita_titles):
         log(f"   📚 Kavita check: found → kavita_skip")
-        return "kavita_skip", None, 0, 0
+        # Still need to find manga_id for gap detection later
+        match, score = find_best_match(title, log)
+        manga_id = None
+        if match and score >= 40:
+            manga_id = match[0]["id"]
+        return "kavita_skip", manga_id, 0, score
 
     if is_in_manual_kavita_skip(title):
         log(f"   📚 Kavita manual check: found → kavita_skip")
