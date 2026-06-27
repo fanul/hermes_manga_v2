@@ -20,7 +20,7 @@ import time
 from datetime import datetime
 
 from .config import (
-    TICK_BUDGET_SECONDS, MAX_INTERNAL_RETRIES, RETRY_DELAY, SUMMARY_FILE,
+    TICK_BUDGET_SECONDS, ENQUEUE_BUDGET_SECONDS, MAX_INTERNAL_RETRIES, RETRY_DELAY, SUMMARY_FILE,
     _log_global,
 )
 from .state import load_state, save_state, save_progress
@@ -201,7 +201,17 @@ def main():
         log_lines.append(line)
 
     def budget_ok():
+        """Total wall-time budget (cron wrapper safety net)."""
         return (time.time() - tick_start) < TICK_BUDGET_SECONDS
+
+    # Adaptive enqueue budget: tracks only network-I/O time (search/enqueue calls).
+    # Bookkeeping (done/not_found/kavita_skip) is instant and does NOT consume budget.
+    # Every time we successfully enqueue (status="downloading"), reset the budget
+    # so the tick continues searching for more titles to enqueue.
+    enqueue_budget_remaining = ENQUEUE_BUDGET_SECONDS
+    last_enqueue_wall = time.time()
+    enqueue_attempts_this_tick = 0
+    enqueue_successes_this_tick = 0
 
     def save_and_advance(title, status, manga_id=None, num_chapters=0, score=0, reason=""):
         state["status"][title] = status
@@ -240,17 +250,17 @@ def main():
     log(f"\n🐛 TICK #{tick_number} @ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} — resume at #{state['current_index']+1}/{len(titles)}")
 
     while budget_ok() and state["current_index"] < len(titles):
-        # Early exit: < 3 minutes remaining
-        remaining = int(TICK_BUDGET_SECONDS - (time.time() - tick_start))
-        if remaining < 180:
-            log(f"\n⏰ Only {remaining}s remaining in tick budget, exiting to let next tick resume")
+        # Early exit: < 3 minutes total remaining (hard safety net)
+        total_remaining = int(TICK_BUDGET_SECONDS - (time.time() - tick_start))
+        if total_remaining < 180:
+            log(f"\n⏰ Only {total_remaining}s total remaining in tick budget, exiting to let next tick resume")
             break
 
         title = titles[state["current_index"]]
         log(f"\n--- #{state['current_index']+1}/{len(titles)}: '{title}' ---")
-        log(f"   ⏱️  Time remaining in tick: {remaining}s")
+        log(f"   ⏱️  Total remaining: {total_remaining}s | Enqueue budget: {enqueue_budget_remaining:.0f}s | Enqueued: {enqueue_successes_this_tick}")
 
-        # Skip titles that already have a terminal status
+        # Skip titles that already have a terminal status (instant bookkeeping — no budget cost)
         existing = state["status"].get(title)
         if existing in ("done", "kavita_skip", "not_found"):
             log(f"   ⏭️  Status already '{existing}', advancing")
@@ -258,11 +268,44 @@ def main():
             save_state(state)
             continue
 
+        # Before processing, check if we have enqueue budget left
+        if enqueue_budget_remaining <= 0:
+            log(f"\n⏰ Enqueue budget exhausted ({ENQUEUE_BUDGET_SECONDS}s of network-I/O consumed this batch)")
+            if enqueue_successes_this_tick == 0:
+                log(f"   💡 No titles enqueued this batch — giving next tick a fresh start")
+                save_and_advance(title, "not_found", reason="enqueue_budget_exhausted_no_success")
+                log(f"   ✅ Outcome: '{title}' → not_found (budget guard)")
+            else:
+                log(f"   📊 Batch complete: {enqueue_successes_this_tick} titles enqueued this batch")
+            break
+
         # Process with retry+fuzzy
+        t0 = time.time()
         status, manga_id, num_chapters, score = _process_with_retry(title, log, kavita_titles)
+        t1 = time.time()
+        elapsed = t1 - t0
+
+        # Track network-I/O time (only for titles that actually need processing)
+        enqueue_budget_remaining -= elapsed
+        enqueue_attempts_this_tick += 1
+
         save_and_advance(title, status, manga_id, num_chapters, score,
                          reason="kavita_skip" if status == "kavita_skip" else "auto_search")
-        log(f"   ✅ Outcome: '{title}' → {status} ({num_chapters} ch)")
+        log(f"   ✅ Outcome: '{title}' → {status} ({num_chapters} ch) [{elapsed:.1f}s]")
+
+        # ADAPTIVE RESET: Every successful enqueue resets the enqueue budget.
+        # This ensures the tick keeps searching for more titles to download.
+        if status == "downloading":
+            enqueue_budget_remaining = ENQUEUE_BUDGET_SECONDS
+            enqueue_successes_this_tick += 1
+            enqueue_attempts_this_tick = 0
+            log(f"   🔄 Enqueue budget RESET — {enqueue_successes_this_tick} successful enqueues this batch")
+        elif status == "done" or status == "kavita_skip":
+            # Terminal status from previous runs — instant bookkeeping, no budget impact
+            enqueue_budget_remaining = ENQUEUE_BUDGET_SECONDS
+            enqueue_successes_this_tick += 1
+            enqueue_attempts_this_tick = 0
+            log(f"   🔄 Budget RESET (terminal status) — continuing search")
 
         # Periodic summary
         pending = sum(1 for s in state["status"].values() if s == "pending")
@@ -270,9 +313,9 @@ def main():
         done = sum(1 for s in state["status"].values() if s == "done")
         not_found = sum(1 for s in state["status"].values() if s == "not_found")
         kavita_skip = sum(1 for s in state["status"].values() if s == "kavita_skip")
-        elapsed = int(time.time() - tick_start)
+        elapsed_total = int(time.time() - tick_start)
         log(f"   📊 pending={pending} downloading={downloading} done={done} "
-            f"not_found={not_found} kavita_skip={kavita_skip}  ⏱️  {elapsed}s")
+            f"not_found={not_found} kavita_skip={kavita_skip}  ⏱️  {elapsed_total}s")
 
     # Final summary
     if not budget_ok():

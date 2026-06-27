@@ -65,7 +65,10 @@ SPINOFF_MARKERS = [
 # Tick / retry tuning
 # ============================================================================
 
-TICK_BUDGET_SECONDS = 20 * 60     # 20 min — avoid cron overlap
+TICK_BUDGET_SECONDS = 20 * 60     # 20 min — hard stop (cron wrapper safety net)
+ENQUEUE_BUDGET_SECONDS = 5 * 60   # 5 min of network-I/O per enqueue batch
+                                  # Reset every successful enqueue (status="downloading")
+                                  # Bookkeeping (done/not_found/kavita_skip) does NOT consume budget
 MAX_INTERNAL_RETRIES = 5          # per-title chapter-indexing retries
 RETRY_DELAY = 5                   # seconds between internal retries
 
