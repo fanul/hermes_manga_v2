@@ -16,6 +16,7 @@ handles retries and recovery.
 """
 
 import json
+import os
 import time
 from datetime import datetime
 
@@ -36,6 +37,7 @@ from .search import find_best_match, find_fuzzy_match
 from .kavita import (
     get_kavita_titles, is_in_kavita, is_in_manual_kavita_skip,
 )
+from .report import emit_summary_table
 
 
 # ============================================================================
@@ -326,6 +328,9 @@ def main():
         log(f"\n✅ All {len(titles)} titles processed")
     else:
         log(f"\n💤 Tick exited cleanly")
+
+    # Emit formatted table summary (user-approved report format)
+    emit_summary_table(state, titles, log, SUMMARY_FILE, MAX_ENQUEUES_PER_TICK)
 
     summary = {
         "total": len(titles),
