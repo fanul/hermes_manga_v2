@@ -21,7 +21,7 @@ from datetime import datetime
 
 from .config import (
     TICK_BUDGET_SECONDS, ENQUEUE_BUDGET_SECONDS, MAX_INTERNAL_RETRIES, RETRY_DELAY, SUMMARY_FILE,
-    _log_global,
+    MAX_ENQUEUES_PER_TICK, _log_global,
 )
 from .state import load_state, save_state, save_progress
 from .spreadsheet import load_titles
@@ -296,19 +296,18 @@ def main():
                          reason="kavita_skip" if status == "kavita_skip" else "auto_search")
         log(f"   ✅ Outcome: '{title}' → {status} ({num_chapters} ch) [{elapsed:.1f}s]")
 
-        # ADAPTIVE RESET: Every successful enqueue resets the enqueue budget.
-        # This ensures the tick keeps searching for more titles to download.
+        # Count successful enqueues. Stop the tick after MAX_ENQUEUES_PER_TICK
+        # to avoid overloading Suwayomi with too many parallel chapter downloads.
         if status == "downloading":
-            enqueue_budget_remaining = ENQUEUE_BUDGET_SECONDS
             enqueue_successes_this_tick += 1
-            enqueue_attempts_this_tick = 0
-            log(f"   🔄 Enqueue budget RESET — {enqueue_successes_this_tick} successful enqueues this batch")
+            if enqueue_successes_this_tick >= MAX_ENQUEUES_PER_TICK:
+                log(f"\n🛑 Hit MAX_ENQUEUES_PER_TICK={MAX_ENQUEUES_PER_TICK} — stopping tick to avoid Suwayomi overload")
+                log(f"   📚 Already downloading: {sum(1 for s in state['status'].values() if s == 'downloading')} titles")
+                log(f"   ⏭️  Next tick will resume at #{state['current_index']+1}")
+                break
         elif status == "done" or status == "kavita_skip":
-            # Terminal status from previous runs — instant bookkeeping, no budget impact
-            enqueue_budget_remaining = ENQUEUE_BUDGET_SECONDS
-            enqueue_successes_this_tick += 1
-            enqueue_attempts_this_tick = 0
-            log(f"   🔄 Budget RESET (terminal status) — continuing search")
+            # Terminal status — instant bookkeeping, does NOT count as enqueue
+            log(f"   ⏭️  Terminal status (no new enqueue) — continuing search")
 
         # Periodic summary
         pending = sum(1 for s in state["status"].values() if s == "pending")
