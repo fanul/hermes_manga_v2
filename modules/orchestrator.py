@@ -260,10 +260,13 @@ def main():
         log(f"\n--- #{state['current_index']+1}/{len(titles)}: '{title}' ---")
         log(f"   ⏱️  Total remaining: {total_remaining}s | Enqueue budget: {enqueue_budget_remaining:.0f}s | Enqueued: {enqueue_successes_this_tick}")
 
-        # Skip titles that already have a terminal status (instant bookkeeping — no budget cost)
+        # Skip titles that already have a terminal or in-progress status (instant bookkeeping — no budget cost)
         existing = state["status"].get(title)
-        if existing in ("done", "kavita_skip", "not_found"):
-            log(f"   ⏭️  Status already '{existing}', advancing")
+        if existing in ("done", "kavita_skip", "not_found", "downloading", "download_pending"):
+            if existing in ("downloading", "download_pending"):
+                log(f"   ⏭️  Status '{existing}' — title still in progress, skipping (will retry next tick)")
+            else:
+                log(f"   ⏭️  Status already '{existing}', advancing")
             state["current_index"] += 1
             save_state(state)
             continue
