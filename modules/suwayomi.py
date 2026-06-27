@@ -16,11 +16,15 @@ from .config import SUWAYOMI_DIRECT, MANGAFIRE_SOURCES, _log_global
 # ============================================================================
 
 def graphql_query(query, timeout=30):
-    """POST a GraphQL query to Suwayomi. Returns parsed JSON dict."""
+    """POST a GraphQL query to Suwayomi. Returns parsed JSON dict.
+
+    GraphQL requires the body to be a JSON envelope: {"query": "..."}.
+    Sending the raw query string returns HTTP 400.
+    """
     try:
         req = urllib.request.Request(
             SUWAYOMI_DIRECT,
-            data=query.encode('utf-8'),
+            data=json.dumps({"query": query}).encode('utf-8'),
             headers={"Content-Type": "application/json"},
         )
         resp = urllib.request.urlopen(req, timeout=timeout).read()
