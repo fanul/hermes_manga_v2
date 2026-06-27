@@ -150,13 +150,12 @@ def main():
             continue
 
         # Queue size guard — if queue too big, pause
-        if enqueue_successes_this_tick > 0:
-            q = get_queue_info()
-            if q and q["queue_size"] >= MAX_QUEUE_SIZE:
-                log(f"\n🛑 Queue size {q['queue_size']} >= MAX_QUEUE_SIZE={MAX_QUEUE_SIZE} — pausing enqueue")
-                log(f"   📚 Already downloading: {sum(1 for s in state['status'].values() if s == 'downloading')} titles")
-                log(f"   ⏭️  Next tick will resume at #{state['current_index']+1}")
-                break
+        q = get_queue_info()
+        if q and q["queue_size"] >= MAX_QUEUE_SIZE:
+            log(f"\n🛑 Queue size {q['queue_size']} >= MAX_QUEUE_SIZE={MAX_QUEUE_SIZE} — pausing enqueue")
+            log(f"   📚 Already downloading: {sum(1 for s in state['status'].values() if s == 'downloading')} titles")
+            log(f"   ⏭️  Next tick will resume at #{state['current_index']+1}")
+            break
 
         # Enqueue budget check
         if enqueue_budget_remaining <= 0:

@@ -26,7 +26,7 @@ from .state import save_state
 
 # Stuck threshold — if a title is in "downloading" state for this many ticks
 # AND has 0 progress (undownloaded count unchanged), it's stuck.
-MAX_STUCK_TICKS = 3
+MAX_STUCK_TICKS = 2
 
 # Threshold for "queue is genuinely empty" — we only force-enqueue when
 # the global Suwayomi queue is small enough that adding 1 more title is safe.
@@ -79,7 +79,26 @@ def recover_stuck_queue(state, log):
     if q and q.get("all_error"):
         log(f"⚠️  Queue has {q['queue_size']} items all in ERROR state — restarting Suwayomi")
         if restart_suwayomi_container():
-            log("   ✅ Suwayomi container restarted")
+            log("   ✅ Suwayomi container restarted, waiting for API to come online...")
+            
+            # Wait for API to respond (max 60s)
+            import time
+            from .suwayomi import graphql_query
+            online = False
+            for attempt in range(12):
+                time.sleep(5)
+                # Simple ping query
+                res = graphql_query('{ __schema { types { name } } }', timeout=5)
+                if res and "errors" not in res:
+                    online = True
+                    log("   ✅ Suwayomi API is online!")
+                    break
+                log("   ...still waiting for Suwayomi API to start")
+            
+            if not online:
+                log("   ❌ Suwayomi API failed to come online in 60s")
+                return False
+
             if clear_download_queue():
                 log("   ✅ Queue cleared")
                 # Mark any titles currently "downloading" with progress=0 as error

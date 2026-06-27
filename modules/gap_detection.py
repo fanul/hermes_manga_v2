@@ -99,6 +99,14 @@ def detect_and_fill_gaps(state, kavita_titles, log):
         # For now, check if there's a known gap from spreadsheet data
         # (the "SW Gap" column)
 
+        # Queue size guard for gap detection
+        from .config import MAX_QUEUE_SIZE
+        from .suwayomi import get_queue_info
+        q = get_queue_info()
+        if q and q["queue_size"] >= MAX_QUEUE_SIZE:
+            log(f"   🛑 Queue size {q['queue_size']} >= MAX_QUEUE_SIZE={MAX_QUEUE_SIZE} — pausing gap fill")
+            break
+
         # Check undownloaded count
         undownloaded = get_undownloaded_chapters(manga_id)
         if not undownloaded:
