@@ -69,7 +69,9 @@ TICK_BUDGET_SECONDS = 20 * 60     # 20 min — hard stop (cron wrapper safety ne
 ENQUEUE_BUDGET_SECONDS = 5 * 60   # 5 min of network-I/O per enqueue batch
                                   # Reset every successful enqueue (status="downloading")
                                   # Bookkeeping (done/not_found/kavita_skip) does NOT consume budget
-MAX_ENQUEUES_PER_TICK = 1         # max 1 new title enqueue per tick (prevents Suwayomi overload)
+MAX_QUEUE_SIZE = 100              # max Suwayomi queue size before we stop enqueuing
+                                  # Allows many titles/tick as long as queue stays below threshold
+                                  # Each title enqueues ALL its chapters at once
 MAX_INTERNAL_RETRIES = 5          # per-title chapter-indexing retries
 RETRY_DELAY = 5                   # seconds between internal retries
 

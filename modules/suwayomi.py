@@ -151,17 +151,54 @@ def get_undownloaded_chapters(manga_id):
 # Download queue
 # ============================================================================
 
-def enqueue_chapters_bulk(chapter_ids):
-    """Enqueue multiple chapters for download."""
-    q = f'''mutation {{
-        enqueueChapterDownloads(input: {{
-            ids: {json.dumps(chapter_ids)},
-            clientMutationId: "auto-search"
-        }}) {{
-            clientMutationId
-        }}
-    }}'''
-    return graphql_query(q, timeout=60)
+def enqueue_undownloaded(manga_id, log):
+    """Enqueue ALL undownloaded chapters for a manga in a single bulk call.
+
+    Resources-light: only sends chapters that haven't been downloaded yet.
+    Returns (enqueued_count, total_count, status):
+        status in {"enqueued", "none_pending", "error"}
+    """
+    try:
+        undownloaded = get_undownloaded_chapters(manga_id)
+        if not undownloaded:
+            return 0, 0, "none_pending"
+
+        # Bulk enqueue — split into batches of 200 to avoid GraphQL payload limits
+        BATCH_SIZE = 200
+        total_enqueued = 0
+        for i in range(0, len(undownloaded), BATCH_SIZE):
+            batch = undownloaded[i:i + BATCH_SIZE]
+            q = f'''mutation {{
+                enqueueChapterDownloads(input: {{
+                    ids: {json.dumps(batch)},
+                    clientMutationId: "auto-search"
+                }}) {{
+                    clientMutationId
+                }}
+            }}'''
+            result = graphql_query(q, timeout=60)
+            if "errors" in result:
+                log(f"   ⚠️  Enqueue batch failed: {result['errors']}")
+                return total_enqueued, len(undownloaded), "error"
+            total_enqueued += len(batch)
+
+        return total_enqueued, len(undownloaded), "enqueued"
+    except Exception as e:
+        log(f"   ⚠️  enqueue_undownloaded error: {e}")
+        return 0, 0, "error"
+
+
+def get_downloaded_count(manga_id):
+    """Return (downloaded_count, total_count) for a manga."""
+    q = '{ manga(id: %d) { chapters { totalCount nodes { id isDownloaded } } } }' % int(manga_id)
+    data = graphql_query(q, timeout=10)
+    if not data or "errors" in data:
+        return 0, 0
+    m = data.get("data", {}).get("manga") or {}
+    nodes = m.get("chapters", {}).get("nodes", [])
+    total = len(nodes)
+    done = sum(1 for n in nodes if n.get("isDownloaded"))
+    return done, total
 
 
 def start_downloader():

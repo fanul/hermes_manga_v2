@@ -16,7 +16,7 @@ import os
 from datetime import datetime
 
 
-def emit_summary_table(state, titles, log, summary_file, max_enqueues_per_tick):
+def emit_summary_table(state, titles, log, summary_file, max_queue_size):
     """Emit the formatted tick summary table at end of tick.
 
     Args:
@@ -24,7 +24,7 @@ def emit_summary_table(state, titles, log, summary_file, max_enqueues_per_tick):
         titles:          list of all titles (from spreadsheet)
         log:             callable(string) — appends to log buffer + prints
         summary_file:    path to last-tick summary JSON (for delta calc)
-        max_enqueues_per_tick: constant value for the Notes section
+        max_queue_size:  constant value for the Notes section (queue-size guard)
     """
     statuses = state.get("status", {})
     counts = {
@@ -75,7 +75,7 @@ def emit_summary_table(state, titles, log, summary_file, max_enqueues_per_tick):
     # ── Notes ──────────────────────────────────────────────────────────────
     log("")
     log("📝 Notes:")
-    log(f"   • MAX_ENQUEUES_PER_TICK = {max_enqueues_per_tick} (Suwayomi overload protection)")
+    log(f"   • MAX_QUEUE_SIZE = {max_queue_size} (queue-size guard for enqueue loop)")
     log(f"   • Next tick resumes at #{current_index + 1}")
     log(f"   • Already-downloading titles: {counts['downloading']} (preserved, not re-enqueued)")
     log("=" * 78)
